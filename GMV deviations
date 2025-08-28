@@ -1,0 +1,130 @@
+clear all;close all;clc
+%% 读取文件
+path = 'E:\network\excel\inform_all.xlsx';
+[HC_B,title1] = xlsread(path,'HC');%
+[ASD_B,title2] = xlsread(path,'ASD');
+%% 读nii文件
+file1=('E:\network\data\ASD\1mm\');
+Sub_name=dir(file1);Sub_name(1:2,:)=[];
+file=('E:\network\data\HC\1mm\');
+h_sub_name=dir(file);h_sub_name(1:2,:)=[];
+ASD_age=ASD_B(:,9);HC_age=HC_B(:,9);IN=ASD_B(:,1);in_hc=HC_B(:,1);
+% age=8;
+%% save
+save_file='E:\network\second\DP\';
+if isdir(save_file) == 0; mkdir(save_file);end %
+% save_file1='E:\network\data\ASD\12-18\DQ\';
+% if isdir(save_file1) == 0; mkdir(save_file1);end %
+% save_file2='E:\network\data\ASD\dis\kl_entropy\dis\';
+% if isdir(save_file2) == 0; mkdir(save_file2);end %
+% save_file2='E:\network\data\ASD\kl_entropy\D_KLi\';
+% if isdir(save_file2) == 0; mkdir(save_file2);end %
+% save_file3='E:\network\data\ASD\kl_entropy\D_KL\';
+% if isdir(save_file3) == 0; mkdir(save_file3);end %
+%% 模板
+[atlas_data,h] = y_Read('E:\yu_study\246\BN_Atlas_246_1mm.nii');
+%得到roi数
+T=reshape(atlas_data,length(atlas_data(:)),1);
+T=T(~isnan(T)); % remove NaN values
+num_ROI=size(unique(T),1)-1;
+n_xmesh=2^7;
+%% 循环查找-----------------------------------
+for i=8:2:16     
+ mkdir([save_file,num2str(i),'\']);
+%  mkdir([save_file1,num2str(i),'\']);
+[z_a,n]=find(ASD_age>=i&ASD_age<i+2);
+ind_asd=IN(z_a);
+  %%  HC 平均-----------------------------------------------
+  [z_h,n]=find(HC_age>=i&HC_age<i+2);
+  ind_hc=in_hc(z_h);
+  for dx=1:size(ind_hc)
+      ind_h=ind_hc(dx);
+  for h_sub=1:length(h_sub_name)
+   path_h=([file,h_sub_name(h_sub).name]);
+    Num_h=str2num(h_sub_name(h_sub).name(7:end-4));
+    if ind_h==Num_h
+        M_data_h(dx,:,:,:)=y_Read(path_h);
+        disp([('第'),num2str(ind_h),'个TD被试找到']); 
+    else
+  end
+  end
+  end
+  GM_data_h=squeeze(mean(M_data_h));  
+  Max_GM_h=max(reshape(GM_data_h,length(GM_data_h(:)),1));
+  Min_GM_h=min(reshape(GM_data_h,length(GM_data_h(:)),1));
+    Range_GM_h=Max_GM_h-Min_GM_h;
+    kde_Min_h=Min_GM_h-Range_GM_h/10;
+    kde_Max_h=Max_GM_h+Range_GM_h/10;
+    % create variables to store result of KDE
+    kde_result_density_h=zeros(num_ROI,n_xmesh);
+    kde_result_xmesh_h=zeros(1,n_xmesh);
+   %% conduct kernel density estimation for each ROI
+    for iROI=1:num_ROI
+        ROI=zeros(size(atlas_data));
+        ROI(atlas_data==iROI) = 1;    
+        GM_ROI=ROI .* GM_data_h;
+        GM_ROI=GM_ROI(GM_ROI~=0);
+        [~,density,xmesh,~]=kde(GM_ROI,n_xmesh,kde_Min_h,kde_Max_h);
+        kde_result_xmesh_h=xmesh;%xmesh是不变的所有的都是一样的
+        kde_result_density_h(iROI,:)=density;
+    end
+
+clear density xmesh ROI  GM_ROI  GM_data_h
+%%  计算ASD----------------------------
+%-----------------------------------
+k=0;
+for asdind=1:size(ind_asd)
+    ind=ind_asd(asdind);
+ for  Sub=1:length(Sub_name)
+   path=([file1,Sub_name(Sub).name]);
+    Num=str2num(Sub_name(Sub).name(7:end-4));
+   if ind==Num
+     GM_data=y_Read(path);
+     M_data_asd(asdind,:,:,:)=GM_data;
+     disp([('第'),num2str(ind),'个ASD被试找到']); 
+   else
+   end
+    clear Num path
+end
+end
+   GM_data_a=squeeze(mean(M_data_asd));  
+   Max_GM_a=max(reshape(GM_data_a,length(GM_data_a(:)),1));
+   Min_GM_a=min(reshape(GM_data_a,length(GM_data_a(:)),1));
+   Range_GM_a=Max_GM_a-Min_GM_a;
+   kde_Min=Min_GM_a-Range_GM_a/10;
+   kde_Max=Max_GM_a+Range_GM_a/10;
+   %% create variables to store result of KDE
+    kde_result_density=zeros(num_ROI,n_xmesh);
+    kde_result_xmesh=zeros(1,n_xmesh);
+    %% conduct kernel density estimation for each ROI
+    for iROI=1:num_ROI
+        ROI=zeros(size(atlas_data));
+        ROI(atlas_data==iROI) = 1;    
+        GM_ROI=ROI .* GM_data;
+        GM_ROI=GM_ROI(GM_ROI~=0);
+        [~,density,xmesh,~]=kde(GM_ROI,n_xmesh,kde_Min,kde_Max);
+        kde_result_xmesh=xmesh;%xmesh是不变的所有的都是一样的
+        kde_result_density(iROI,:)=density;
+    end
+    
+%%   replace 0 by 1e-10
+    kde_result_density(kde_result_density==0)=1e-10;
+    kde_result_density_h(kde_result_density_h==0)=1e-10;
+  %%  initialize relation_matrix
+    KLS_mat=zeros(num_ROI);
+%%     only have to calculate half of the KLS in relation_matrix 
+%%      fill the matrix using matrix transpotation and addition
+    KLS_mat=KLS_mat + KLS_mat';
+    for r1=1:num_ROI
+        [Dq_mat(r1),Dp_mat(r1),max_r(r1,:)]=KLS_calculation(r1,kde_result_density,kde_result_xmesh,kde_result_density_h,kde_result_xmesh_h,n_xmesh);
+    end
+ save([save_file,'\',num2str(i),'\','DLp_',num2str(ind)],'Dp_mat');
+   %save([save_file1,'\',num2str(i),'\','DLq_',num2str(ind)],'Dq_mat');
+end
+ %% 保存文件 
+
+   
+% %    save([save_file2,'\',num2str(i),'\','DKLi_',num2str(ind)],'DLi_mat');
+% %    save([save_file3,'\',num2str(i),'\','DKL_',num2str(ind)],'DL_mat');
+% %  clear  KLi_mat KL_mat DLi_mat DL_mat
+%  clear dis
