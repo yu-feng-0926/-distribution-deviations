@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jul  4 22:50:27 2023
+
+@author: fy
+"""
+
+import torch
+import torch.nn as nn
+import numpy as np
+import copy
+
+
+class diffusion_predict(nn.Module):
+    def __init__(self, num_node, optimizers=[]):
+        super(diffusion_predict, self).__init__()
+        self.Lambda = nn.Parameter(torch.zeros(num_node))
+        self.optimizers = optimizers
+        
+    def forward_sigle_step(self, x0, eigval, eigvec):
+        num_node = eigval.shape[0]
+        diffusion_comp = []
+        for i in range(num_node):  # 每个节点对整个网络的影响
+            L_exp_comp = torch.matmul(eigvec, torch.matmul(torch.diag(torch.exp(-self.Lambda[i] * eigval)),  eigvec.T))
+            x_w_comp = torch.zeros(x0.shape).double()
+            x_w_comp[:,i] =  x0[:, i] 
+            x_h_comp = torch.matmul(L_exp_comp, x_w_comp.T).T
+            diffusion_comp.append(x_h_comp)
+        diffusion_comp = torch.stack((diffusion_comp),axis=0)
+        x_pred = torch.sum(diffusion_comp,axis=0)
+        return x_pred, diffusion_comp
+    
+    
+    def forward(self, x0, eigval, eigvec,num_step):
+        diffusion_pred = []
+        x_init = x0
+        for i_step in range(num_step):
+            x_step,_ = self.forward_sigle_step(x_init, eigval, eigvec)
+            diffusion_pred.append(x_step)
+            x_init = x_step
+        diffusion_pred  = torch.stack(diffusion_pred).transpose(1,0)
+        return diffusion_pred
+    
+    def optimize(self, x0, x_step, eigval, eigvec,num_step):
+        x_pred = self.forward(x0, eigval, eigvec,num_step)
+        Mse_F = nn.MSELoss(reduction='mean')
+        loss_fn = Mse_F(x_pred,x_step)
+        
+        self.optimizers.zero_grad()
+        loss_fn.backward()
+        self.optimizers.step()
+        
+        with torch.no_grad():  ## constrin Lambda > 0
+            self.Lambda.clamp_(min=0) 
+        
+        return loss_fn
+
+
+
+            
+            
+        
+        
+        
+        
